@@ -1,0 +1,130 @@
+---
+title: "Exploratory Data Analysis on Beijing PM2.5 Dataset"
+output: html_notebook
+---
+
+```{r}
+# load packages
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+# read in dataset
+# getwd()
+prsa <- read.csv("../data/PRSA_data_2010.1.1-2014.12.31.csv", row.names = 1, colClasses = c("pm2.5" = "numeric",
+                                                                                            "DEWP"="numeric"))
+# Explanations for each variable
+# No: row number 
+# year: year of data in this row 
+# month: month of data in this row 
+# day: day of data in this row 
+# hour: hour of data in this row 
+# pm2.5: PM2.5 concentration (ug/m^3) 
+# DEWP: Dew Point (â„ƒ) 
+# TEMP: Temperature (â„ƒ) 
+# PRES: Pressure (hPa) 
+# cbwd: Combined wind direction 
+# Iws: Cumulated wind speed (m/s) 
+# Is: Cumulated hours of snow 
+# Ir: Cumulated hours of rain 
+```
+
+```{r}
+# check distributions
+summary(prsa)
+# pm2.5 has 2067 NA
+```
+
+```{r}
+# change "cv"" in cbwd to "SW"
+levels(prsa$cbwd)[1] <- "SW"
+# sort it to NE, NW, SE, SW
+prsa$cbwd <- factor(prsa$cbwd, levels = c("NE", "NW", "SE", "SW"))
+summary(prsa$cbwd)
+```
+
+```{r}
+# create datetime from year, month, day and hour
+# sort the dataframe by datetime
+prsa <- prsa %>%
+  mutate(date = make_date(year, month, day),
+         datetime = make_datetime(year, month, day, hour)) %>%
+  arrange(datetime)
+```
+
+```{r, echo=TRUE}
+# plot the distribution of each variable
+which(colnames(prsa) == "pm2.5")
+which(colnames(prsa) == "Ir")
+for(i in 5:12) {
+  if(is.factor(prsa[,i])) {
+    print(ggplot(prsa, aes(prsa[, i])) +
+            geom_histogram(stat = "count") +
+            xlab(colnames(prsa)[i]))
+  }
+  else {
+    print(ggplot(prsa, aes(prsa[, i])) +
+            geom_histogram(binwidth = 2) +
+            xlab(colnames(prsa)[i]))
+  }
+}
+```
+
+```{r, echo=TRUE}
+# correlations between pm2.5 and other variables
+for(i in 6:12) {
+  if(!is.factor(prsa[,i])) {
+    print(paste("pm2.5 & ", colnames(prsa)[i], sep = ""))
+    print(cor(prsa$pm2.5, prsa[, i], use = "complete.obs"))
+    print(ggplot(prsa, aes(prsa[,i], pm2.5)) +
+            geom_point() +
+            xlab(colnames(prsa)[i]))
+  }
+  else {
+    print(ggplot(prsa, aes(prsa[,i], pm2.5)) +
+            geom_boxplot() +
+            xlab(colnames(prsa)[i]))
+  }
+}
+# Why is there an N-shape in the plot of pm2.5 vs Iws? Are they outliers?
+```
+
+```{r}
+# Are there any correlations between those weather variables?
+for(i in 6:12) {
+  for(j in (i+1):12) {
+    if(j <= 12 & j > i & !is.factor(prsa[,i]) & !is.factor(prsa[,j])) {
+      print(paste(colnames(prsa)[i], "&", colnames(prsa)[j], sep = " "))
+      print(cor(prsa[,i], prsa[,j]))
+      print(ggplot(prsa, aes(prsa[,i], prsa[,j])) + 
+              geom_point() +
+              xlab(colnames(prsa)[i]) +
+              ylab(colnames(prsa)[j]))
+    }
+  }
+}
+
+for(i in 6:12) {
+  if(!is.factor(prsa[,i])) {
+    print(ggplot(prsa, aes(cbwd, prsa[,i])) +
+            geom_boxplot() +
+            xlab("cbwd") +
+            ylab(colnames(prsa)[i]))
+  }
+}
+# dewp and temp have positive correlation
+# dewp and pres have negative correlation
+# temp and pres have negative correlation
+```
+
+```{r}
+# plot time series of pm2.5
+ggplot(prsa, aes(datetime, pm2.5)) +
+  geom_line() + 
+  scale_x_datetime(date_breaks = "6 months", limits = c(as.POSIXct("2009-12-01"), as.POSIXct("2015-01-31"))) +
+  xlab("") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
