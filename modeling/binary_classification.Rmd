@@ -1,0 +1,95 @@
+---
+title: "Binary Classification on Beijing PM2.5 Data"
+output: html_notebook
+---
+
+```{r}
+library(stringr)
+library(caret)
+library(car)
+```
+
+```{r}
+# create binary target variable
+prsa$harm <- sapply(prsa$pm2.5, function(x) ifelse(x > 55.5, 1, 0))
+prsa$harm <- as.factor(prsa$harm)
+summary(prsa$harm)
+```
+
+```{r}
+# the corresponding datetime for missing pm2.5
+prsa[which(is.na(prsa$pm2.5)), c("date", "datetime")]
+# does it have any pattern?
+```
+
+```{r}
+# create season as a predictor
+prsa$month_day <- paste(str_pad(prsa$month, 2, side="left", pad="0"), str_pad(prsa$day, 2, side="left", pad="0"), sep = "")
+prsa$season <- sapply(prsa$month_day, function(x) ifelse(x >= "1222" | x <= "0321", "winter",
+                                                         ifelse(x > "0321" & x <= "0622", "spring",
+                                                                ifelse(x > "0622" & x <= "0923", "summer", "fall"))))
+prsa$season <- as.factor(prsa$season)
+```
+
+```{r}
+# create parts of a day as a predictor
+prsa$day_part <- sapply(prsa$hour, function(x) ifelse(x >= 0 & x <= 5, "night",
+                                                      ifelse(x > 5 & x <= 11, "morning",
+                                                             ifelse(x > 11 & x < 18, "afternoon", "evening"))))
+prsa$day_part <- as.factor(prsa$day_part)
+```
+
+```{r}
+# add public events like important conferences as a predictor
+# NPC dates: Mar 3rd to Mar 14th
+# APEC: Nov 10-11 2014
+prsa$conf <- sapply(prsa$date, function(x) ifelse((x >= as.Date("2010-03-03") & x <= as.Date("2010-03-14")) |
+                                                    (x >= as.Date("2011-03-03") & x <= as.Date("2011-03-14")) |
+                                                    (x >= as.Date("2012-03-03") & x <= as.Date("2012-03-14")) |
+                                                    (x >= as.Date("2013-03-03") & x <= as.Date("2013-03-14")) |
+                                                    (x >= as.Date("2014-03-03") & x <= as.Date("2014-03-14")),
+                                                  "NPC", ifelse(x >= as.Date("2014-11-10") & x <= as.Date("2014-11-11"), "APEC", "None")))
+prsa$conf <- as.factor(prsa$conf)
+```
+
+```{r}
+# subset the dataset to non-missing pm2.5, and remove time-related variables
+# split the dataset to training and testing set - 2010-2013 is training, 2014 is testing
+prsa_binary <- prsa[which(!is.na(prsa$pm2.5)), c("year", "DEWP", "TEMP", "PRES", "cbwd", "Iws", "Is", "Ir",
+                                                 "season", "day_part", "conf", "harm")]
+binary_train <- prsa_binary[which(prsa_binary$year < 2014), c("DEWP", "TEMP", "PRES", "cbwd", "Iws", "Is",
+                                                              "Ir", "season", "day_part", "conf", "harm")]
+binary_test <- prsa_binary[which(prsa_binary$year == 2014), c("DEWP", "TEMP", "PRES", "cbwd", "Iws", "Is",
+                                                              "Ir", "season", "day_part", "conf", "harm")]
+```
+
+```{r}
+# is the dataset highly unbalanced?
+table(binary_train$harm)
+# no, so 0.5 as cut-off should be fine
+```
+
+```{r}
+levels(binary_train$conf)
+levels(binary_test$conf)
+```
+
+```{r}
+# baseline logistic regression
+baseline <- glm(harm ~ ., data = binary_train, family = binomial(link = "logit"))
+summary(baseline) # actually quite good baseline results
+```
+
+```{r}
+# predict on test set
+baseline$xlevels$conf <- union(baseline$xlevels$conf, levels(binary_test$conf))
+binary_test$baseline_pred <- ifelse(predict(baseline, newdata = binary_test, type = "response") > 0.5, 1, 0)
+# prediction from a rank-deficient fit may be misleading
+```
+
+```{r}
+# confusion matrix
+confusionMatrix(binary_test$baseline_pred, reference = binary_test$harm)
+# wow...
+```
+
